@@ -1,6 +1,7 @@
 const User = require("../Models/UserModel");
 const { createSecretToken } = require("../util/SecretToken");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 module.exports.Signup = async (req, res, next) => {
   try {
@@ -9,7 +10,8 @@ module.exports.Signup = async (req, res, next) => {
     if (existingUser) {
       return res.json({ message: "User already exists" });
     }
-    const user = await User.create({ email, password, username, createdAt });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await User.create({ email, password: hashedPassword, username, createdAt });
     const token = createSecretToken(user._id);
     res.cookie("token", token, {
       withCredentials: true,
@@ -27,25 +29,42 @@ module.exports.Signup = async (req, res, next) => {
 module.exports.Login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if(!email || !password ){
-      return res.json({message:'All fields are required'})
+    if (!email || !password) {
+      return res.json({ message: 'All fields are required' });
     }
     const user = await User.findOne({ email });
-    if(!user){
-      return res.json({message:'Incorrect password or email' }) 
+    if (!user) {
+      return res.json({ message: 'Incorrect password or email' });
     }
-    const auth = await bcrypt.compare(password,user.password)
+    const auth = await bcrypt.compare(password, user.password);
     if (!auth) {
-      return res.json({message:'Incorrect password or email' }) 
+      return res.json({ message: 'Incorrect password or email' });
     }
-     const token = createSecretToken(user._id);
-     res.cookie("token", token, {
-       withCredentials: true,
-       httpOnly: false,
-     });
-     res.status(201).json({ message: "User logged in successfully", success: true });
-     next()
+    const token = createSecretToken(user._id);
+    res.cookie("token", token, {
+      withCredentials: true,
+      httpOnly: false,
+    });
+    res.status(201).json({ message: "User logged in successfully", success: true });
+    next();
   } catch (error) {
     console.error(error);
   }
-}
+};
+
+module.exports.verifyToken = async (req, res) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.json({ status: false });
+  }
+  jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
+    if (err) {
+      return res.json({ status: false });
+    }
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.json({ status: false });
+    }
+    return res.json({ status: true, user: user.username });
+  });
+};
